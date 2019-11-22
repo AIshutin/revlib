@@ -1,3 +1,7 @@
+revlib/examples/
+revlib/0.png
+revlib/0ch.png
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
