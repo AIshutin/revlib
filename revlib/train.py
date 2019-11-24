@@ -1,5 +1,6 @@
 import torch
 import copy
+import utils
 
 LAY_BATCHSIZE = 32
 ALLOW_GPU = True
@@ -19,6 +20,9 @@ def train_lay(reverted_lay, io_data, device=None, verbose=False):
     @ io_data[i][0] is the input of normal layer, thus it should be the ouput of reverted layer. \
     And vice versa for io_data[i][1].
     """
+
+    if utils.calc_parameters(reverted_lay) == 0:
+        return (reverted_lay, 0)
 
     if device is None:
         if ALLOW_GPU and torch.cuda.is_available():

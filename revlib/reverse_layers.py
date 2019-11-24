@@ -1,4 +1,6 @@
 import torch
+from utils import calc_parameters
+
 ConvTranspose2d_DEFAULT_KERNEL_DIM_SIZE = 5
 ConvTranspose2d_DEFAULT_MAX_STRIDE = 4
 ConvTranspose2d_DEFAULT_MAX_DILATION = 4
@@ -26,14 +28,31 @@ class ReversedLayerParamsNotFound(Exception):
         f" and output_shape {self.input_shape} not found"
     __repr__ = __str__
 
-def calc_parameters(lay):
-    total = 0
-    for tensor in lay.parameters():
-        curr = 1
-        for el in tensor.shape:
-            curr *= el
-        total += curr
-    return total
+
+class UpsamplingUnpooling2d(torch.nn.Module):
+    """
+    Output shape is the same as in case of using Unpool2d but the strategy is upsampling.
+    """
+    def __init__(self, kernel_size, stride=None, padding=0, mode='bilinear'):
+        super().__init__()
+        if type(padding) is type(0):
+            padding = [padding, padding]
+        if type(kernel_size) is type(0):
+            kernel_size = [kernel_size, kernel_size]
+        if stride is None:
+            stride = kernel_size
+        elif type(stride) is type(0):
+            stride = [stride] * 2
+        self.padding = padding
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.mode = mode
+
+    def forward(self, X):
+        (batch_size, c, hin, win) = X.shape
+        hout = (hin - 1) * self.stride[0] - 2 * self.padding[0] + self.kernel_size[0]
+        wout = (win - 1) * self.stride[1] - 2 * self.padding[1] + self.kernel_size[1]
+        return torch.nn.functional.interpolate(X, size=(hout, wout), mode=self.mode, align_corners=False)
 
 def choose_parameters_in_ConvTranspose2d_space(input_shape, output_shape, layer, symmetric=True):
     batch_size, cin, hin, win = input_shape
@@ -79,15 +98,21 @@ def choose_parameters_in_ConvTranspose2d_space(input_shape, output_shape, layer,
 def choose_parameters_in_Linear_space(input_shape, output_shape, lay=None):
     return [{'in_features': input_shape[-1], 'out_features': output_shape[-1]}]
 
+def choose_parameters_in_UpsamplingUnpooling2d_space(input_shape=None, output_shape=None, lay=None):
+    assert(lay is not None)
+    kernel_size = lay.kernel_size
+    stride = lay.stride
+    padding = lay.padding
+    return [{'kernel_size': kernel_size, 'stride': stride, 'padding': padding}]
+
 reverse_layer = {torch.nn.Linear: torch.nn.Linear,
-                 torch.nn.Conv2d: torch.nn.ConvTranspose2d}
-#                 type(torch.nn.modules.conv.Conv2d): torch.nn.ConvTranspose2d}
+                 torch.nn.Conv2d: torch.nn.ConvTranspose2d,
+                 torch.nn.MaxPool2d: UpsamplingUnpooling2d}
 
 def get_reversed(input_shape, output_shape, lay, verbose=False):
     if type(lay) not in reverse_layer:
         raise ReversedLayerClassNotDeclared(type(lay))
     rclass = reverse_layer[type(lay)]
-    print(lay)
     params = globals()[f'choose_parameters_in_{rclass.__name__}_space'](output_shape, input_shape, lay)
     if len(params) == 0:
         raise ReversedLayerParamsNotFound(type(rclass), input_shape, output_shape)

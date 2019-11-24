@@ -64,15 +64,14 @@ class DebugNet(torch.nn.Module):
         self.net = net
 
     def forward(self, x):
-        print(x.shape)
         return self.net(x)
 
+IMAGEFOLDER = '../../flower_photos'
 
-if __name__ == "__main__":
+def Conv2d_test_1(imagefolder=IMAGEFOLDER, results="examples"):
     vgg = models.vgg16(pretrained=True)
     lay = vgg.features[0]
     lay.eval()
-    imagefolder = '../../flower_photos'
 
     '''inputs = utils.NoLabelsDataset(torchvision.datasets.ImageFolder(imagefolder, transform=transforms.Resize((224, 224))))
     inputs[0].save('0.png')
@@ -88,10 +87,33 @@ if __name__ == "__main__":
 
     print(f"Loss: {loss:9.4f}")
     try:
-        os.mkdir('examples')
+        os.mkdir(results)
     except FileExistsError as exp:
         pass
 
     for i in range(len(original)):
-        original[i].save(f'examples/original{i}.png')
-        reverted[i].save(f'examples/reverted{i}.png')
+        original[i].save(f'{results}/original{i}.png')
+        reverted[i].save(f'{results}/reverted{i}.png')
+
+def MaxPool2d_test_1(imagefolder=IMAGEFOLDER, results="examples"):
+    lay = torch.nn.MaxPool2d(3, stride=2)
+
+    inputs = utils.NoLabelsDataset(torchvision.datasets.ImageFolder(imagefolder, transform=img2tensor))
+    lay = DebugNet(lay)
+    with torch.no_grad():
+        outputs = utils.NoLabelsDataset(torchvision.datasets.ImageFolder(imagefolder,
+                                        transform=transforms.Compose([img2tensor, lambda x: lay(x.unsqueeze(0)).squeeze(0)])))
+    lay = lay.net
+    _, loss, original, reverted = test_lay(lay, inputs, outputs, verbose=True)
+
+    try:
+        os.mkdir(results)
+    except FileExistsError as exp:
+        pass
+
+    for i in range(len(original)):
+        original[i].save(f'{results}/original{i}.png')
+        reverted[i].save(f'{results}/reverted{i}.png')
+
+if __name__ == "__main__":
+    MaxPool2d_test_1()

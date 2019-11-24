@@ -30,3 +30,15 @@ class NoLabelsDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, ind):
         return self.data[ind][0]
+
+def calc_parameters(lay):
+    total = 0
+    try:
+        for tensor in lay.parameters():
+            curr = 1
+            for el in tensor.shape:
+                curr *= el
+            total += curr
+        return total
+    except AttributeError as exp:
+        return 0
