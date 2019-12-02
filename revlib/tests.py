@@ -4,6 +4,7 @@ import torchvision.models as models
 import torchvision.transforms as transforms
 
 import reverse_layers
+import reverse_net
 import train
 import utils
 import sys
@@ -115,5 +116,12 @@ def MaxPool2d_test_1(imagefolder=IMAGEFOLDER, results="examples"):
         original[i].save(f'{results}/original{i}.png')
         reverted[i].save(f'{results}/reverted{i}.png')
 
+def vgg_test_1(imagefolder=IMAGEFOLDER, results="examples"):
+    vgg = models.vgg16(pretrained=True).features
+    print(vgg)
+    vgg = vgg[:8]
+    inputs = utils.NoLabelsDataset(torchvision.datasets.ImageFolder(imagefolder, transform=img2tensor))
+    train.train_net(inputs, vgg, reverse_net.reverse_net(vgg), verbose=True)
+
 if __name__ == "__main__":
-    MaxPool2d_test_1()
+    vgg_test_1()

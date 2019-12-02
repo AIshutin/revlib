@@ -1,6 +1,8 @@
 import torch
 import copy
 import utils
+from torch import nn
+import tqdm
 
 LAY_BATCHSIZE = 32
 ALLOW_GPU = True
@@ -8,12 +10,27 @@ EPOCHS = 1#20
 RANDOM_SEED = 1791791791
 EVAL_PART = 0.33
 LAY_LR = 1e-4
+NET_LR = 1e-4
 LAY_MOMENTUM = 0.9
+NET_MOMENTUM = 0.9
+LR_DECAY = 0.1
+LR_THR = 1e-6
 torch.manual_seed(RANDOM_SEED)
 
 criterion = torch.nn.MSELoss()
 
-def train_lay(reverted_lay, io_data, device=None, verbose=False):
+DEVICE = None
+
+def get_device():
+    global DEVICE
+    if DEVICE is None:
+        if ALLOW_GPU and torch.cuda.is_available():
+            DEVICE = torch.device('cuda:0')
+        else:
+            DEVICE = torch.device('cpu')
+    return DEVICE
+
+def train_lay(reverted_lay, io_data, verbose=False, optimizer=None):
     """
     Trains decoder layer which restores input_data of normal layer from output_data of normal layer
 
@@ -24,12 +41,10 @@ def train_lay(reverted_lay, io_data, device=None, verbose=False):
     if utils.calc_parameters(reverted_lay) == 0:
         return (reverted_lay, 0)
 
-    if device is None:
-        if ALLOW_GPU and torch.cuda.is_available():
-            device = torch.device('cuda:0')
-            reverted_lay.to(device)
-        else:
-            device = torch.device('cpu')
+    if optimizer is None:
+        device = get_device()
+        reverted_lay.to(device)
+        optimizer = torch.optim.SGD(reverted_lay.parameters(), lr=LAY_LR, momentum=LAY_MOMENTUM)
 
     test_size = int(len(io_data) * EVAL_PART)
     train_size = len(io_data) - test_size
@@ -40,8 +55,6 @@ def train_lay(reverted_lay, io_data, device=None, verbose=False):
 
     best = None
     best_loss = None
-
-    optimizer = torch.optim.SGD(reverted_lay.parameters(), lr=LAY_LR, momentum=LAY_MOMENTUM)
 
     for epoch in range(EPOCHS):
         iter = trainloader
@@ -67,4 +80,61 @@ def train_lay(reverted_lay, io_data, device=None, verbose=False):
         if best_loss is None or best_loss > total_loss:
             best = copy.deepcopy(reverted_lay).to('cpu')
             best_loss = total_loss
-    return (best, best_loss)
+
+    if optimizer is None:
+        return (best, best_loss)
+    else:
+        return (best, best_loss, optimizer)
+
+def split_encoder(encoder, blocks):
+    #print(encoder)
+    #print(blocks)
+    enc_blocks = []
+    lays = utils.extract_layers(encoder)
+    last = 0
+    for block in blocks:
+        enc_blocks.append(nn.Sequential(*lays[last:block.ind + 1]))
+        last = block.ind + 1
+    return enc_blocks
+
+def train_net(input, encoder, blocks, verbose=False):
+    encoder = split_encoder(encoder, blocks)
+    device = get_device()
+    dataset = utils.IOdataset(input, copy.deepcopy(input))
+    optimizer = None
+    decoder = nn.Sequential()
+    #torch.optim.SGD(reverted_lay.parameters(), lr=LAY_LR, momentum=LAY_MOMENTUM)
+
+    iterator = range(len(blocks))
+    if verbose:
+        iterator = tqdm.tqdm(iterator, desc="Blocks training")
+
+    for i in iterator:
+        enc = encoder[0]
+        enc.to(device)
+        enc.eval()
+
+        dataset.output = utils.apply_net(enc, dataset.output, device, batch_size=LAY_BATCHSIZE)
+
+        net = blocks[i]
+        net.to(device)
+        decoder = nn.Sequential(*([net] + utils.extract_layers(decoder)))
+
+        if i == 0:
+            optimizer = torch.optim.SGD(decoder.parameters(), lr=NET_LR, momentum=NET_MOMENTUM)
+        else:
+            groups = []
+            for param_group in optimizer.param_groups:
+                param_group['lr'] *= LR_DECAY
+                if param_group['lr'] >= LR_THR:
+                    groups.append(param_group)
+            optimizer.param_groups = groups
+
+            optimizer.add_parameter_group({'params': net.parameters(),
+                                            'lr': NET_LR,
+                                            'momentum': NET_MOMENTUM})
+
+        decoder, loss, optimizer = train_lay(decoder, dataset, verbose, optim)
+
+    decoder = nn.Sequential(*utils.extract_layers(decoder))
+    return decoder

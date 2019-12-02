@@ -54,11 +54,9 @@ class UpsamplingUnpooling2d(torch.nn.Module):
         wout = (win - 1) * self.stride[1] - 2 * self.padding[1] + self.kernel_size[1]
         return torch.nn.functional.interpolate(X, size=(hout, wout), mode=self.mode, align_corners=False)
 
-def choose_parameters_in_ConvTranspose2d_space(input_shape, output_shape, layer, symmetric=True):
-    batch_size, cin, hin, win = input_shape
-    batch_size, cout, hout, wout = output_shape
+def choose_parameters_in_ConvTranspose2d_space(input_shape=None, output_shape=None, layer=None):
+    assert(layer is not None)
 
-    input_ex = torch.randn((1, cin, hin, win))
     inp_pads = range(0, ConvTranspose2d_DEFAULT_MAX_INP_PADDING + 1)
     out_pads = range(0, ConvTranspose2d_DEFAULT_MAX_OUT_PADDING + 1)
 
@@ -67,6 +65,22 @@ def choose_parameters_in_ConvTranspose2d_space(input_shape, output_shape, layer,
     stride1, stride2 = layer.stride
     dil1, dil2 = layer.dilation
     kdim1, kdim2 = layer.kernel_size
+
+    if input_shape is None or output_shape is None:
+        cin = layer.weight.shape[0]
+        cout = layer.bias.shape[0]
+        print(cin, cout, layer)
+
+        return [{   'in_channels': cin,
+                    'out_channels': cout,
+                    'kernel_size': (kdim1, kdim2),
+                    'stride': (stride1, stride2),
+                    'dilation': (dil1, dil2)}]
+
+    batch_size, cin, hin, win = input_shape
+    batch_size, cout, hout, wout = output_shape
+
+    input_ex = torch.randn((1, cin, hin, win))
 
     for ipad1 in inp_pads:
         for ipad2 in inp_pads:
@@ -95,8 +109,11 @@ def choose_parameters_in_ConvTranspose2d_space(input_shape, output_shape, layer,
     configurations.sort(key=lambda x: x[:-1])
     return [el[-1] for el in configurations]
 
-def choose_parameters_in_Linear_space(input_shape, output_shape, lay=None):
-    return [{'in_features': input_shape[-1], 'out_features': output_shape[-1]}]
+def choose_parameters_in_Linear_space(input_shape=None, output_shape=None, lay=None):
+    if lay is None:
+        return [{'in_features': input_shape[-1], 'out_features': output_shape[-1]}]
+    else:
+        return [{'in_features': lay.weight.shape[-1], 'out_features': lay.weight.shape[0]}]
 
 def choose_parameters_in_UpsamplingUnpooling2d_space(input_shape=None, output_shape=None, lay=None):
     assert(lay is not None)
@@ -109,7 +126,8 @@ reverse_layer = {torch.nn.Linear: torch.nn.Linear,
                  torch.nn.Conv2d: torch.nn.ConvTranspose2d,
                  torch.nn.MaxPool2d: UpsamplingUnpooling2d}
 
-def get_reversed(input_shape, output_shape, lay, verbose=False):
+def get_reversed(input_shape=None, output_shape=None, lay=None, verbose=False):
+    assert(lay is not None)
     if type(lay) not in reverse_layer:
         raise ReversedLayerClassNotDeclared(type(lay))
     rclass = reverse_layer[type(lay)]
