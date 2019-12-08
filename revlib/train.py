@@ -30,7 +30,7 @@ def get_device():
             DEVICE = torch.device('cpu')
     return DEVICE
 
-def train_lay(reverted_lay, io_data, verbose=False, optimizer=None):
+def train_lay(reverted_lay, io_data, verbose=False, optimizer=None, device=None):
     """
     Trains decoder layer which restores input_data of normal layer from output_data of normal layer
 
@@ -45,7 +45,8 @@ def train_lay(reverted_lay, io_data, verbose=False, optimizer=None):
         device = get_device()
         reverted_lay.to(device)
         optimizer = torch.optim.SGD(reverted_lay.parameters(), lr=LAY_LR, momentum=LAY_MOMENTUM)
-
+    else:
+    	assert(device is not None)
     test_size = int(len(io_data) * EVAL_PART)
     train_size = len(io_data) - test_size
     traindata, testdata = torch.utils.data.random_split(io_data, [train_size, test_size])
@@ -55,6 +56,9 @@ def train_lay(reverted_lay, io_data, verbose=False, optimizer=None):
 
     best = None
     best_loss = None
+    
+    print('DECODER')
+    print(reverted_lay)
 
     for epoch in range(EPOCHS):
         iter = trainloader
@@ -65,7 +69,9 @@ def train_lay(reverted_lay, io_data, verbose=False, optimizer=None):
             optimizer.zero_grad()
             X = X.to(device)
             Y = Y.to(device)
+            print(Y.shape, X.shape)
             predicted = reverted_lay(X)
+            print('predicted', predicted.shape)
             loss = criterion(predicted, Y)
             loss.backward()
             optimizer.step()
@@ -109,15 +115,24 @@ def train_net(input, encoder, blocks, verbose=False):
     if verbose:
         iterator = tqdm.tqdm(iterator, desc="Blocks training")
 
+    enc = None
     for i in iterator:
-        enc = encoder[0]
-        enc.to(device)
-        enc.eval()
+        if enc is None:
+            enc = nn.Sequential(encoder[0])
+            enc.to(device)
+            enc.eval()
+        else:
+            enc = nn.Sequential(*(utils.extract_layers(enc) + [encoder[i].to(device)]))
+            enc.eval()
 
-        dataset.output = utils.apply_net(enc, dataset.output, device, batch_size=LAY_BATCHSIZE)
+        print('ENCODER:')
+        print(enc)
+        dataset.output = utils.apply_net(enc, dataset.input, device, batch_size=LAY_BATCHSIZE)
 
         net = blocks[i]
         net.to(device)
+        print('DEC_HEAD', net)
+        print(utils.extract_layers(decoder))
         decoder = nn.Sequential(*([net] + utils.extract_layers(decoder)))
 
         if i == 0:
@@ -130,11 +145,11 @@ def train_net(input, encoder, blocks, verbose=False):
                     groups.append(param_group)
             optimizer.param_groups = groups
 
-            optimizer.add_parameter_group({'params': net.parameters(),
+            optimizer.add_param_group({'params': net.parameters(),
                                             'lr': NET_LR,
                                             'momentum': NET_MOMENTUM})
 
-        decoder, loss, optimizer = train_lay(decoder, dataset, verbose, optim)
+        decoder, loss, optimizer = train_lay(decoder, dataset, verbose, optimizer, device)
 
     decoder = nn.Sequential(*utils.extract_layers(decoder))
     return decoder

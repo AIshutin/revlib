@@ -67,18 +67,23 @@ def choose_parameters_in_ConvTranspose2d_space(input_shape=None, output_shape=No
     kdim1, kdim2 = layer.kernel_size
 
     if input_shape is None or output_shape is None:
-        cin = layer.weight.shape[0]
-        cout = layer.bias.shape[0]
-        print(cin, cout, layer)
+        cin = layer.out_channels
+        cout = layer.in_channels
+        padd = layer.padding
+        print('^^^^^', cin, cout, layer)
+        print(padd)
 
         return [{   'in_channels': cin,
                     'out_channels': cout,
                     'kernel_size': (kdim1, kdim2),
                     'stride': (stride1, stride2),
-                    'dilation': (dil1, dil2)}]
+                    'dilation': (dil1, dil2),
+                    'padding': padd}]
 
     batch_size, cin, hin, win = input_shape
     batch_size, cout, hout, wout = output_shape
+
+    print('Conv2d!!', cin, '-->', cout)
 
     input_ex = torch.randn((1, cin, hin, win))
 

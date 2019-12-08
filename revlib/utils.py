@@ -54,9 +54,11 @@ def calc_parameters(lay):
 
 def extract_layers(net):
     lays = []
-    for lay in net.modules():
+    for lay in net.children():
         if not isinstance(lay, nn.Sequential) and not isinstance(lay, LayBlock):
             lays.append(lay)
+        else:
+            lays += extract_layers(lay)
     return lays
 
 ACTIVATIONS = [nn.ReLU, nn.ReLU6, nn.ELU, nn.SELU, nn.PReLU, nn.LeakyReLU,
@@ -115,6 +117,10 @@ class LayBlock(torch.nn.Module):
         return self.lays.__repr__()
 
 def apply_net(net, data, device=torch.device('cpu'), batch_size=1):
-    assert(batch_size == 1)
-    default = torch.device('cpu')
-    return [net(el.to(device).unsqueeze(0)).squeeze(0).to(default) for el in data]
+    dataloader = torch.utils.data.DataLoader(data, batch_size=batch_size, shuffle=False)
+    result = []
+    for data in dataloader:
+        data.to(device)
+        res = net(data).cpu()
+        result += [el.squeeze(0) for el in res.chunk(res.shape[0], dim=0)]
+    return result
