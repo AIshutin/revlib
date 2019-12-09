@@ -2,6 +2,7 @@ import torch
 import copy
 import utils
 from torch import nn
+import torchvision.models as models
 import tqdm
 
 LAY_BATCHSIZE = 32
@@ -21,6 +22,23 @@ criterion = torch.nn.MSELoss()
 
 DEVICE = None
 
+class VGG16_MLoss(nn.Module):
+	def __init__(self, ind=[1, 3, 6], device=None):
+		super().__init__()
+		if device is None:
+			device = get_device()
+		self.vgg = utils.extract_layers(models.vgg16(pretrained=True).eval().to(device).features)[:max(ind)]
+		self.ind = ind
+
+	def forward(self, X, target):
+		loss = 0
+		for i, lay in enumerate(self.vgg):
+			X = lay(X)
+			target = lay(target)
+			if i in self.ind:
+				loss += criterion(X, target)
+		return loss
+
 def get_device():
     global DEVICE
     if DEVICE is None:
@@ -30,7 +48,7 @@ def get_device():
             DEVICE = torch.device('cpu')
     return DEVICE
 
-def train_lay(reverted_lay, io_data, verbose=False, optimizer=None, device=None):
+def train_lay(reverted_lay, io_data, verbose=False, optimizer=None, device=None, criterion=None):
     """
     Trains decoder layer which restores input_data of normal layer from output_data of normal layer
 
@@ -59,6 +77,9 @@ def train_lay(reverted_lay, io_data, verbose=False, optimizer=None, device=None)
     
     print('DECODER')
     print(reverted_lay)
+
+    if criterion is None:
+    	del criterion
 
     for epoch in range(EPOCHS):
         iter = trainloader
@@ -115,6 +136,7 @@ def train_net(input, encoder, blocks, verbose=False):
     if verbose:
         iterator = tqdm.tqdm(iterator, desc="Blocks training")
 
+    criterion = VGG16_MLoss()
     enc = None
     for i in iterator:
         if enc is None:
@@ -149,7 +171,8 @@ def train_net(input, encoder, blocks, verbose=False):
                                             'lr': NET_LR,
                                             'momentum': NET_MOMENTUM})
 
-        decoder, loss, optimizer = train_lay(decoder, dataset, verbose, optimizer, device)
+        decoder, loss, optimizer = train_lay(decoder, dataset, verbose, optimizer, device, 
+        									criterion=criterion)
 
     decoder = nn.Sequential(*utils.extract_layers(decoder))
     return decoder
